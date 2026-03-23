@@ -407,7 +407,7 @@ const App: React.FC = () => {
                       onChange={(e) => setLevel(e.target.value as Level)}
                       className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
                     >
-                      {Object.values(Level).filter(l => l !== 'Selecione').map(l => <option key={l} value={l}>{l}</option>)}
+                      {Object.values(Level).map(l => <option key={l} value={l}>{l}</option>)}
                     </select>
                   </div>
                   <div>
