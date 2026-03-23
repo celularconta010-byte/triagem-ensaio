@@ -1,0 +1,5 @@
+{
+  "name": "Triagem",
+  "description": "Aplicativo de registro e triagem para eventos musicais, organizando músicos (irmãos) e organistas (irmãs) de forma eficiente.",
+  "requestFramePermissions": []
+}
