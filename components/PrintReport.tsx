@@ -98,8 +98,10 @@ export const PrintReport: React.FC<PrintReportProps> = ({ attendees, eventMeta, 
                         </div>
 
                         <div className="text-center pb-8 mt-auto">
-                            <div className="text-xl font-bold text-indigo-950">{eventMeta.local || 'Local não informado'}</div>
-                            <div className="text-md font-medium text-indigo-900 mt-1">{eventMeta.date || ''}</div>
+                            <div className="inline-block bg-white/80 backdrop-blur-sm rounded-xl px-4 py-2 shadow-md">
+                                <div className="text-xl font-bold text-indigo-950">{eventMeta.local || 'Local não informado'}</div>
+                                <div className="text-md font-medium text-indigo-900 mt-1">{eventMeta.date || ''}</div>
+                            </div>
                         </div>
                     </div>
 
