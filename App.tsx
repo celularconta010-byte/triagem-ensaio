@@ -438,24 +438,23 @@ const App: React.FC = () => {
               {selectedRole === Role.MUSICIAN && (
                 <>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Cargo <span className="text-rose-500">*</span></label>
+                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Cargo</label>
                     <select
-                      value={level === Level.NONE ? "" : level}
+                      value={level}
                       onChange={(e) => setLevel(e.target.value as Level)}
-                      className={`w-full p-4 bg-white border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none ${level === Level.NONE ? 'border-amber-300 text-slate-400' : 'border-slate-300 text-slate-900'}`}
+                      className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
                     >
-                      <option value="" disabled>Selecione</option>
-                      {Object.values(Level).filter(l => l !== Level.NONE).map(l => <option key={l} value={l}>{l}</option>)}
+                      {Object.values(Level).map(l => <option key={l} value={l}>{l}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Instrumento <span className="text-rose-500">*</span></label>
+                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Instrumento</label>
                     <select
                       value={instrument}
                       onChange={(e) => setInstrument(e.target.value)}
-                      className={`w-full p-4 bg-white border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none ${!instrument ? 'border-amber-300 text-slate-400' : 'border-slate-300 text-slate-900'}`}
+                      className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
                     >
-                      <option value="" disabled>Selecione o Instrumento</option>
+                      <option value="">Selecione o Instrumento</option>
                       {INSTRUMENTS.map(i => <option key={i} value={i}>{i}</option>)}
                     </select>
                   </div>
@@ -494,7 +493,7 @@ const App: React.FC = () => {
 
               <Button
                 type="submit"
-                disabled={!city || (selectedRole === Role.MUSICIAN && (level === Level.NONE || !instrument))}
+                disabled={!city}
                 className="w-full py-5 text-xl font-bold rounded-2xl shadow-lg"
                 variant={selectedRole === Role.MUSICIAN ? 'primary' : 'secondary'}
               >
