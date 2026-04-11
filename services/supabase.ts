@@ -10,6 +10,24 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');
 
+export async function checkSystemStatus(): Promise<{ offline: boolean }> {
+    try {
+        const { error } = await supabase.from('event_metadata').select('id').limit(1);
+        if (error) {
+            console.error("Status check error:", error);
+            const msg = error.message?.toLowerCase() || '';
+            const code = error.code || '';
+            if (msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || code.startsWith('5')) {
+                return { offline: true };
+            }
+        }
+        return { offline: false };
+    } catch (err: any) {
+        console.error("Status check exception:", err);
+        return { offline: true };
+    }
+}
+
 // Attendees functions
 export async function fetchAttendees(): Promise<Attendee[]> {
     const { data, error } = await supabase

@@ -7,10 +7,23 @@ import { PrintReport } from './components/PrintReport';
 import { CityPrint } from './components/CityPrint';
 import { CitiesList } from './components/CitiesList';
 import { AttendeesList } from './components/AttendeesList';
-import { fetchAttendees, addAttendee, updateAttendee, deleteAttendee, clearAllAttendees, fetchEventMetadata, saveEventMetadata, clearEventMetadata } from './services/supabase';
+import { fetchAttendees, addAttendee, updateAttendee, deleteAttendee, clearAllAttendees, fetchEventMetadata, saveEventMetadata, clearEventMetadata, checkSystemStatus } from './services/supabase';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('landing');
+  const [isOffline, setIsOffline] = useState(false);
+
+  const generateId = () => {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+      }
+    } catch (e) {}
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  };
 
   // Custom function to change view and update browser history
   const navigateTo = (newView: ViewState, replace: boolean = false) => {
@@ -81,6 +94,12 @@ const App: React.FC = () => {
   // Carregar dados do Supabase ao iniciar
   useEffect(() => {
     const loadData = async () => {
+      const status = await checkSystemStatus();
+      if (status.offline) {
+        setIsOffline(true);
+        return;
+      }
+
       const [attendeesData, metaData] = await Promise.all([
         fetchAttendees(),
         fetchEventMetadata()
@@ -131,7 +150,7 @@ const App: React.FC = () => {
     if (!city) return;
 
     const newAttendee: Attendee = {
-      id: editingAttendee ? editingAttendee.id : crypto.randomUUID(),
+      id: editingAttendee ? editingAttendee.id : generateId(),
       ministry,
       role: selectedRole!,
       instrument: instrument || (selectedRole === Role.ORGANIST ? 'Órgão' : 'Não informado'),
@@ -302,6 +321,24 @@ const App: React.FC = () => {
       `}</style>
 
       {/* Main UI */}
+      {isOffline && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-300">
+          <div className="bg-white max-w-md w-full p-8 rounded-3xl shadow-2xl text-center space-y-6">
+            <div className="text-6xl mb-4 animate-pulse">⚠️</div>
+            <h2 className="text-2xl font-black text-slate-800 tracking-tight">Sistema Inativo</h2>
+            <p className="text-slate-600 font-medium">
+              O banco de dados está temporariamente offline ou pausado por inatividade.
+            </p>
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-xl text-sm text-left">
+              <strong>Atenção Administrador:</strong> Acesse o painel do Supabase e clique em <b>Restore</b> para reativar o sistema e restabelecer a conexão.
+            </div>
+            <Button onClick={() => window.location.reload()} variant="primary" className="w-full py-4 rounded-xl text-lg font-bold">
+              Tentar Novamente
+            </Button>
+          </div>
+        </div>
+      )}
+
       {view !== 'print' && (
         <header className="w-full max-w-4xl px-6 py-8 flex flex-col items-center no-print">
           <div className="bg-white p-3 rounded-full shadow-sm mb-4">
@@ -401,23 +438,24 @@ const App: React.FC = () => {
               {selectedRole === Role.MUSICIAN && (
                 <>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Cargo</label>
+                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Cargo <span className="text-rose-500">*</span></label>
                     <select
-                      value={level}
+                      value={level === Level.NONE ? "" : level}
                       onChange={(e) => setLevel(e.target.value as Level)}
-                      className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
+                      className={`w-full p-4 bg-white border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none ${level === Level.NONE ? 'border-amber-300 text-slate-400' : 'border-slate-300 text-slate-900'}`}
                     >
-                      {Object.values(Level).map(l => <option key={l} value={l}>{l}</option>)}
+                      <option value="" disabled>Selecione</option>
+                      {Object.values(Level).filter(l => l !== Level.NONE).map(l => <option key={l} value={l}>{l}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Instrumento</label>
+                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Instrumento <span className="text-rose-500">*</span></label>
                     <select
                       value={instrument}
                       onChange={(e) => setInstrument(e.target.value)}
-                      className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
+                      className={`w-full p-4 bg-white border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none ${!instrument ? 'border-amber-300 text-slate-400' : 'border-slate-300 text-slate-900'}`}
                     >
-                      <option value="">Selecione o Instrumento</option>
+                      <option value="" disabled>Selecione o Instrumento</option>
                       {INSTRUMENTS.map(i => <option key={i} value={i}>{i}</option>)}
                     </select>
                   </div>
@@ -456,7 +494,7 @@ const App: React.FC = () => {
 
               <Button
                 type="submit"
-                disabled={!city}
+                disabled={!city || (selectedRole === Role.MUSICIAN && (level === Level.NONE || !instrument))}
                 className="w-full py-5 text-xl font-bold rounded-2xl shadow-lg"
                 variant={selectedRole === Role.MUSICIAN ? 'primary' : 'secondary'}
               >
