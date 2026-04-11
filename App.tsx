@@ -69,7 +69,7 @@ const App: React.FC = () => {
   const cityDropdownRef = useRef<HTMLDivElement>(null);
 
   const initialMeta: EventMetadata = {
-    eventTitle: 'Triagem Ensaio',
+    eventTitle: 'Ensaio Regional',
     local: '',
     date: new Date().toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
     anciao: '',
@@ -344,7 +344,7 @@ const App: React.FC = () => {
           <div className="bg-white p-3 rounded-full shadow-sm mb-4">
             <span className="text-3xl">🎺</span>
           </div>
-          <h1 className="title-font text-3xl font-bold text-slate-800">Triagem Ensaio</h1>
+          <h1 className="title-font text-3xl font-bold text-slate-800">Ensaio Regional</h1>
         </header>
       )}
 
