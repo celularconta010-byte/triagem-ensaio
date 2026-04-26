@@ -163,9 +163,8 @@ export const PrintReport: React.FC<PrintReportProps> = ({ attendees, eventMeta, 
                         <table className="mb-4">
                             <thead><tr><th>Total</th><th className="qty-cell">Qtd.</th></tr></thead>
                             <tbody>
-                                <tr><td>Ministério</td><td className="qty-cell">{ministerioIrmaosCount}</td></tr>
-                                <tr className="row-alt"><td>Músicos</td><td className="qty-cell">{musicosSemMinisterioCount}</td></tr>
-                                <tr><td>Organistas</td><td className="qty-cell">{organistasCount}</td></tr>
+                                <tr><td>Músicos</td><td className="qty-cell">{musicosSemMinisterioCount}</td></tr>
+                                <tr className="row-alt"><td>Organistas</td><td className="qty-cell">{organistasCount}</td></tr>
                                 <tr className="font-bold bg-slate-200"><td>Total Geral</td><td className="qty-cell">{attendees.length}</td></tr>
                             </tbody>
                         </table>
