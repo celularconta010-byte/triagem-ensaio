@@ -1,10 +1,10 @@
 import React from 'react';
-import { Attendee, EventMetadata } from '../types';
+import { Attendee, EventModel } from '../types';
 import { Button } from './Button';
 
 interface CityPrintProps {
     attendees: Attendee[];
-    eventMeta: EventMetadata;
+    eventMeta: EventModel;
     onBack: () => void;
 }
 

@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
-import { Attendee, EventMetadata } from '../types';
+import { Attendee, EventModel } from '../types';
 import { Button } from './Button';
 import { generateMusicalReflection } from '../services/geminiService';
 
 interface EventDashboardProps {
   attendees: Attendee[];
-  eventMeta: EventMetadata;
-  onUpdateMeta: (meta: EventMetadata) => void;
+  eventMeta: EventModel;
+  onUpdateMeta: (meta: EventModel) => void;
   onClearData: () => void;
   onGenerateReport: () => void;
   onPrintCities: () => void;
   onBack: () => void;
   onViewCities: () => void;
   onViewAttendees: () => void;
+  onDeleteEvent: () => void;
 }
 
 export const EventDashboard: React.FC<EventDashboardProps> = ({
@@ -24,7 +25,8 @@ export const EventDashboard: React.FC<EventDashboardProps> = ({
   onPrintCities,
   onBack,
   onViewCities,
-  onViewAttendees
+  onViewAttendees,
+  onDeleteEvent
 }) => {
   const cityCounts = attendees.reduce((acc, curr) => {
     acc[curr.city] = (acc[curr.city] || 0) + 1;
@@ -178,7 +180,10 @@ export const EventDashboard: React.FC<EventDashboardProps> = ({
             BAIXAR BACKUP (JSON)
           </Button>
           <Button onClick={onClearData} variant="danger" className="flex-1">
-            RESETAR PARA NOVO EVENTO
+            EXCLUIR SÓ PARTICIPANTES
+          </Button>
+          <Button onClick={onDeleteEvent} variant="danger" className="flex-1 border-rose-600 bg-rose-600 text-white hover:bg-rose-700">
+            APAGAR EVENTO INTEIRO
           </Button>
         </div>
       </div>

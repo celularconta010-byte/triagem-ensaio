@@ -25,6 +25,7 @@ export enum Ministry {
 
 export interface Attendee {
   id: string;
+  event_id: string;
   ministry: Ministry;
   role: Role;
   instrument: string;
@@ -33,7 +34,9 @@ export interface Attendee {
   timestamp: number;
 }
 
-export interface EventMetadata {
+export interface EventModel {
+  id?: string;
+  code: string;
   eventTitle: string;
   local: string;
   date: string;
@@ -41,6 +44,7 @@ export interface EventMetadata {
   regionais: string;
   palavra: string;
   hinos: string;
+  created_at?: string;
 }
 
 export const INSTRUMENT_GROUPS = {
@@ -63,4 +67,4 @@ export const INSTRUMENTS = [
   ...INSTRUMENT_GROUPS.Metais
 ];
 
-export type ViewState = 'landing' | 'form' | 'dashboard' | 'print' | 'print-cities' | 'cities-list' | 'attendees-list';
+export type ViewState = 'event-selection' | 'admin-events' | 'landing' | 'form' | 'dashboard' | 'print' | 'print-cities' | 'cities-list' | 'attendees-list';

@@ -1,11 +1,11 @@
 import React from 'react';
-import { Attendee, EventMetadata, INSTRUMENT_GROUPS, Ministry, Level, Role } from '../types';
+import { Attendee, EventModel, INSTRUMENT_GROUPS, Ministry, Level, Role } from '../types';
 import { Button } from './Button';
 
 
 interface PrintReportProps {
     attendees: Attendee[];
-    eventMeta: EventMetadata;
+    eventMeta: EventModel;
     onBack: () => void;
 }
 
@@ -166,7 +166,7 @@ export const PrintReport: React.FC<PrintReportProps> = ({ attendees, eventMeta, 
                             <tbody>
                                 <tr><td>Músicos</td><td className="qty-cell">{musicosSemMinisterioCount}</td></tr>
                                 <tr className="row-alt"><td>Organistas</td><td className="qty-cell">{organistasCount}</td></tr>
-                                <tr className="font-bold bg-slate-200"><td>Total Geral</td><td className="qty-cell">{attendees.length}</td></tr>
+                                <tr className="font-bold bg-slate-200"><td>Total Orquestra</td><td className="qty-cell">{attendees.length}</td></tr>
                             </tbody>
                         </table>
 

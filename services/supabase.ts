@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Attendee, EventMetadata } from '../types';
+import { Attendee, EventModel } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -12,7 +12,7 @@ export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');
 
 export async function checkSystemStatus(): Promise<{ offline: boolean }> {
     try {
-        const { error } = await supabase.from('event_metadata').select('id').limit(1);
+        const { error } = await supabase.from('events').select('id').limit(1);
         if (error) {
             console.error("Status check error:", error);
             const msg = error.message?.toLowerCase() || '';
@@ -28,11 +28,92 @@ export async function checkSystemStatus(): Promise<{ offline: boolean }> {
     }
 }
 
+// Events functions
+export async function getEventByCode(code: string): Promise<EventModel | null> {
+    const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .ilike('code', code.trim())
+        .limit(1)
+        .single();
+
+    if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching event by code:', error);
+        return null;
+    }
+    
+    return data || null;
+}
+
+export async function fetchAllEvents(): Promise<EventModel[]> {
+    const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching all events:', error);
+        return [];
+    }
+    return data || [];
+}
+
+export async function createEvent(eventData: Omit<EventModel, 'id' | 'created_at'>): Promise<EventModel | null> {
+    const { data, error } = await supabase
+        .from('events')
+        .insert([{
+            ...eventData,
+            code: eventData.code.trim().toUpperCase()
+        }])
+        .select()
+        .single();
+
+    if (error) {
+        console.error('ERRO Supabase (createEvent):', error.message);
+        return null;
+    }
+
+    return data;
+}
+
+export async function updateEvent(eventData: EventModel): Promise<boolean> {
+    const { id, created_at, ...payload } = eventData;
+    
+    const { error } = await supabase
+        .from('events')
+        .update({
+            ...payload,
+            code: payload.code.trim().toUpperCase()
+        })
+        .eq('id', id);
+
+    if (error) {
+        console.error('ERRO Supabase (updateEvent):', error.message);
+        return false;
+    }
+
+    return true;
+}
+
+export async function deleteEvent(id: string): Promise<boolean> {
+    const { error } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', id);
+
+    if (error) {
+        console.error('Error deleting event:', error);
+        return false;
+    }
+    return true;
+}
+
 // Attendees functions
-export async function fetchAttendees(): Promise<Attendee[]> {
+export async function fetchAttendees(eventId: string): Promise<Attendee[]> {
     const { data, error } = await supabase
         .from('attendees')
         .select('*')
+        .eq('event_id', eventId)
         .order('timestamp', { ascending: false });
 
     if (error) {
@@ -84,82 +165,14 @@ export async function deleteAttendee(id: string): Promise<boolean> {
     return true;
 }
 
-export async function clearAllAttendees(): Promise<boolean> {
+export async function clearAllAttendees(eventId: string): Promise<boolean> {
     const { error } = await supabase
         .from('attendees')
         .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
+        .eq('event_id', eventId);
 
     if (error) {
         console.error('Error clearing attendees:', error);
-        return false;
-    }
-
-    return true;
-}
-
-// Event Metadata functions
-export async function fetchEventMetadata(): Promise<EventMetadata | null> {
-    const { data, error } = await supabase
-        .from('event_metadata')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-    if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching event metadata:', error);
-        return null;
-    }
-
-    return data || null;
-}
-
-export async function saveEventMetadata(metadata: EventMetadata): Promise<boolean> {
-    const { data: existing, error: fetchError } = await supabase
-        .from('event_metadata')
-        .select('id')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-    if (fetchError && fetchError.code !== 'PGRST116') {
-        console.error('ERRO Supabase (fetch metadata before save):', fetchError.message);
-    }
-
-    const payload = {
-        ...metadata,
-        updated_at: new Date().toISOString()
-    };
-
-    let result;
-    if (existing?.id) {
-        result = await supabase
-            .from('event_metadata')
-            .update(payload)
-            .eq('id', existing.id);
-    } else {
-        result = await supabase
-            .from('event_metadata')
-            .insert([payload]);
-    }
-
-    if (result.error) {
-        console.error('ERRO Supabase (saveEventMetadata):', result.error.message, result.error.details);
-        return false;
-    }
-
-    return true;
-}
-
-export async function clearEventMetadata(): Promise<boolean> {
-    const { error } = await supabase
-        .from('event_metadata')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
-
-    if (error) {
-        console.error('Error clearing event metadata:', error);
         return false;
     }
 

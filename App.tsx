@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Attendee, Role, Level, ViewState, INSTRUMENTS, Ministry, EventMetadata } from './types';
+import { Attendee, Role, Level, ViewState, INSTRUMENTS, Ministry, EventModel } from './types';
 import { Button } from './components/Button';
 import { BRAZILIAN_CITIES } from './services/cities';
 import { EventDashboard } from './components/EventDashboard';
@@ -7,10 +7,10 @@ import { PrintReport } from './components/PrintReport';
 import { CityPrint } from './components/CityPrint';
 import { CitiesList } from './components/CitiesList';
 import { AttendeesList } from './components/AttendeesList';
-import { fetchAttendees, addAttendee, updateAttendee, deleteAttendee, clearAllAttendees, fetchEventMetadata, saveEventMetadata, clearEventMetadata, checkSystemStatus } from './services/supabase';
+import { fetchAttendees, addAttendee, updateAttendee, deleteAttendee, clearAllAttendees, getEventByCode, createEvent, updateEvent, deleteEvent, checkSystemStatus, fetchAllEvents } from './services/supabase';
 
 const App: React.FC = () => {
-  const [view, setView] = useState<ViewState>('landing');
+  const [view, setView] = useState<ViewState>('event-selection');
   const [isOffline, setIsOffline] = useState(false);
 
   const generateId = () => {
@@ -25,7 +25,6 @@ const App: React.FC = () => {
     });
   };
 
-  // Custom function to change view and update browser history
   const navigateTo = (newView: ViewState, replace: boolean = false) => {
     if (newView === view) return;
     
@@ -37,51 +36,55 @@ const App: React.FC = () => {
     setView(newView);
   };
 
-  // Handle browser back/forward buttons (popstate)
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
       if (event.state && event.state.view) {
         setView(event.state.view);
       } else {
-        setView('landing');
+        setView('event-selection');
       }
     };
 
-    // Initialize history state on first load
-    window.history.replaceState({ view: 'landing' }, '', '');
+    window.history.replaceState({ view: 'event-selection' }, '', '');
     
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [ministry, setMinistry] = useState<Ministry>(Ministry.NONE);
   const [instrument, setInstrument] = useState('');
   const [level, setLevel] = useState<Level>(Level.MUSICIAN);
-  const [city, setCity] = useState('');
+  const [city, setCity] = useState(localStorage.getItem('savedCity') || '');
   const [showSuccess, setShowSuccess] = useState(false);
   const [editingAttendee, setEditingAttendee] = useState<Attendee | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [allEvents, setAllEvents] = useState<EventModel[]>([]);
 
-  // Custom Dropdown States for City
   const [isCityDropdownOpen, setIsCityDropdownOpen] = useState(false);
   const [citySearchTerm, setCitySearchTerm] = useState('');
   const cityDropdownRef = useRef<HTMLDivElement>(null);
 
-  const initialMeta: EventMetadata = {
-    eventTitle: 'Triagem Ensaio Regional',
+  const initialMeta: EventModel = {
+    code: '',
+    eventTitle: 'ENSAIO REGIONAL',
     local: '',
-    date: new Date().toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+    date: new Date().toLocaleDateString('pt-BR'),
     anciao: '',
     regionais: '',
     palavra: '',
     hinos: ''
   };
 
-  // Event Metadata
-  const [eventMeta, setEventMeta] = useState<EventMetadata>(initialMeta);
+  const [eventMeta, setEventMeta] = useState<EventModel>(initialMeta);
+  const [activeEventId, setActiveEventId] = useState<string | null>(null);
 
-  // Dinamic Title for Printing - Helps naming the PDF file
+  // States for Event Selection screen
+  const [inputCode, setInputCode] = useState('');
+  const [isCreatingEvent, setIsCreatingEvent] = useState(false);
+  const [newEvent, setNewEvent] = useState<Omit<EventModel, 'id' | 'created_at'>>({ ...initialMeta, code: '' });
+  const [eventError, setEventError] = useState('');
+
   useEffect(() => {
     if (view === 'print') {
       const originalTitle = document.title;
@@ -91,40 +94,47 @@ const App: React.FC = () => {
     }
   }, [view, eventMeta.local]);
 
-  // Carregar dados do Supabase ao iniciar
   useEffect(() => {
-    const loadData = async () => {
+    localStorage.setItem('savedView', view);
+  }, [view]);
+
+  useEffect(() => {
+    if (city) localStorage.setItem('savedCity', city);
+  }, [city]);
+
+  useEffect(() => {
+    const checkBgStatusAndRestore = async () => {
       const status = await checkSystemStatus();
-      if (status.offline) {
-        setIsOffline(true);
-        return;
-      }
+      if (status.offline) setIsOffline(true);
 
-      const [attendeesData, metaData] = await Promise.all([
-        fetchAttendees(),
-        fetchEventMetadata()
-      ]);
+      const savedCode = localStorage.getItem('savedEventCode');
+      const savedView = localStorage.getItem('savedView') as ViewState | null;
 
-      if (attendeesData.length > 0) {
-        setAttendees(attendeesData);
-      }
-
-      if (metaData) {
-        setEventMeta(metaData);
+      if (savedCode) {
+        const event = await getEventByCode(savedCode);
+        if (event) {
+          setEventMeta(event);
+          setActiveEventId(event.id!);
+          const attendeesData = await fetchAttendees(event.id!);
+          setAttendees(attendeesData);
+          if (savedView && savedView !== 'event-selection') {
+            navigateTo(savedView, true);
+          } else {
+            navigateTo('landing', true);
+          }
+        }
       }
     };
-
-    loadData();
+    checkBgStatusAndRestore();
   }, []);
 
-  // Salvar metadados do evento quando mudarem
+  // Update Event Metadata in DB when it changes IF an event is active
   useEffect(() => {
-    if (eventMeta.local || eventMeta.anciao || eventMeta.regionais || eventMeta.palavra || eventMeta.hinos || eventMeta.eventTitle || eventMeta.date) {
-      saveEventMetadata(eventMeta);
+    if (activeEventId && eventMeta.id) {
+        updateEvent(eventMeta);
     }
-  }, [eventMeta]);
+  }, [eventMeta, activeEventId]);
 
-  // Click outside listener for city dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (cityDropdownRef.current && !cityDropdownRef.current.contains(event.target as Node)) {
@@ -134,6 +144,50 @@ const App: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Event Access Logic
+  const handleJoinEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEventError('');
+    if (!inputCode.trim()) return;
+
+    const event = await getEventByCode(inputCode);
+    if (event) {
+      setEventMeta(event);
+      setActiveEventId(event.id!);
+      localStorage.setItem('savedEventCode', event.code);
+      
+      const attendeesData = await fetchAttendees(event.id!);
+      setAttendees(attendeesData);
+      
+      navigateTo('landing');
+    } else {
+      setEventError('Evento não encontrado. Verifique o código.');
+    }
+  };
+
+  const handleCreateEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEventError('');
+    if (!newEvent.code.trim() || !newEvent.eventTitle.trim()) {
+      setEventError('Título e Código são obrigatórios.');
+      return;
+    }
+
+    // Tentar criar - pode falhar se o código já existir
+    const createdEvent = await createEvent(newEvent);
+    
+    if (createdEvent) {
+      setEventMeta(createdEvent);
+      setActiveEventId(createdEvent.id!);
+      localStorage.setItem('savedEventCode', createdEvent.code);
+      setAttendees([]);
+      navigateTo('landing');
+    } else {
+      setEventError('Erro ao criar evento. Tente usar outro código (pode já existir).');
+    }
+  };
+
 
   const handleRegister = (role: Role) => {
     setSelectedRole(role);
@@ -147,10 +201,11 @@ const App: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!city) return;
+    if (!city || !activeEventId) return;
 
     const newAttendee: Attendee = {
       id: editingAttendee ? editingAttendee.id : generateId(),
+      event_id: activeEventId,
       ministry,
       role: selectedRole!,
       instrument: instrument || (selectedRole === Role.ORGANIST ? 'Órgão' : 'Não informado'),
@@ -159,7 +214,6 @@ const App: React.FC = () => {
       timestamp: editingAttendee ? editingAttendee.timestamp : Date.now(),
     };
 
-    // Adicionar ou Atualizar no Supabase
     const success = editingAttendee
       ? await updateAttendee(newAttendee)
       : await addAttendee(newAttendee);
@@ -172,8 +226,6 @@ const App: React.FC = () => {
       }
 
       setShowSuccess(true);
-
-      // Reset Completo do formulário após registro
       setCity('');
       setCitySearchTerm('');
       setMinistry(Ministry.NONE);
@@ -191,20 +243,58 @@ const App: React.FC = () => {
   };
 
   const clearAllData = async () => {
-    if (confirm('ATENÇÃO: Isso apagará TODOS os registros para iniciar um NOVO evento. Deseja continuar?')) {
-      await Promise.all([
-        clearAllAttendees(),
-        clearEventMetadata()
-      ]);
-
+    if (!activeEventId) return;
+    if (confirm('ATENÇÃO: Isso apagará TODOS os registros de lista de presença deste evento mas manterá o evento. Deseja continuar?')) {
+      await clearAllAttendees(activeEventId);
       setAttendees([]);
-      setEventMeta({
-        ...initialMeta,
-        date: new Date().toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-      });
-      setView('landing');
-      navigateTo('landing', true); // Reset history
     }
+  };
+
+  const handleDeleteEvent = async () => {
+    if (!activeEventId) return;
+    if (confirm('PERIGO: Você está prestes a excluir o EVENTO INTEIRO e todas as suas listas de presença. Esta ação não pode ser desfeita. Tem certeza?')) {
+      const success = await deleteEvent(activeEventId);
+      if (success) {
+        localStorage.removeItem('savedEventCode');
+        localStorage.removeItem('savedView');
+        setActiveEventId(null);
+        setEventMeta(initialMeta);
+        setAttendees([]);
+        navigateTo('event-selection');
+      } else {
+        alert('Erro ao excluir evento. Verifique a conexão.');
+      }
+    }
+  };
+
+  const handleAdminDeleteEvent = async (id: string, title: string) => {
+    const pass = prompt('Por segurança, digite a senha de Administrador para excluir o evento:');
+    if (pass !== 'ensaiosccbst1') {
+      alert('Senha incorreta. Ação cancelada.');
+      return;
+    }
+
+    if (confirm(`PERIGO: Você está prestes a excluir definitivamente o evento "${title}" e todas as SUAS LISTAS de presença. Esta ação não pode ser desfeita. Tem certeza?`)) {
+      const success = await deleteEvent(id);
+      if (success) {
+        setAllEvents(allEvents.filter(e => e.id !== id));
+        if (activeEventId === id) {
+          localStorage.removeItem('savedEventCode');
+          localStorage.removeItem('savedView');
+          setActiveEventId(null);
+          setEventMeta(initialMeta);
+          setAttendees([]);
+        }
+      } else {
+        alert('Erro ao excluir evento. Verifique a conexão.');
+      }
+    }
+  };
+
+  const onLoadAllEvents = async () => {
+    const events = await fetchAllEvents();
+    setAllEvents(events);
+    navigateTo('admin-events');
   };
 
   const handleEditAttendee = (attendee: Attendee) => {
@@ -229,7 +319,6 @@ const App: React.FC = () => {
     }
   };
 
-
   const filteredCities = BRAZILIAN_CITIES.filter(c =>
     c.toLowerCase().includes(citySearchTerm.toLowerCase())
   );
@@ -237,80 +326,28 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center">
       <style>{`
-        /* Cores de Fundo (Grayscale) */
         .bg-gray-light { background-color: #f7fafc !important; }
         .bg-header-gray { background-color: #edf2f7 !important; }
         .bg-summary-gray { background-color: #f7fafc !important; }
-        
-        /* Utilitários de Borda */
         .border-k { border: 1px solid black !important; }
         .border-k-2 { border: 2px solid black !important; }
         .border-k-double { border: 4px double black !important; }
-
-        /* Reset Geral para Impressão e Preview */
         * { box-sizing: border-box !important; }
-
-        /* Container Principal do Relatório (Simula folha A4) */
-        .print-view {
-          background: white;
-          color: black;
-          font-family: "Inter", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-          margin: 0 auto;
-          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
-          border: 1px solid #e2e8f0;
-          width: 29.7cm;
-          height: 21cm;
-          overflow: hidden;
-          position: relative;
-        }
-
-        .print-columns-wrapper {
-          display: flex !important;
-          flex-direction: row !important;
-          width: 100% !important;
-          height: 100% !important;
-          background: white;
-        }
-
-        .print-column {
-          flex: 0 0 33.33% !important;
-          height: 100% !important;
-          padding: 0.4cm 0.4cm;
-          display: flex;
-          flex-direction: column;
-          border-right: 0.5pt solid #cbd5e1 !important;
-          position: relative;
-        }
-
-        .print-column:last-child {
-          border-right: none !important;
-        }
-
-        /* Tabelas Estilizadas */
+        .print-view { background: white; color: black; font-family: "Inter", sans-serif; margin: 0 auto; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0; width: 29.7cm; height: 21cm; overflow: hidden; position: relative; }
+        .print-columns-wrapper { display: flex !important; flex-direction: row !important; width: 100% !important; height: 100% !important; background: white; }
+        .print-column { flex: 0 0 33.33% !important; height: 100% !important; padding: 0.4cm 0.4cm; display: flex; flex-direction: column; border-right: 0.5pt solid #cbd5e1 !important; position: relative; }
+        .print-column:last-child { border-right: none !important; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
         th, td { border: 0.5pt solid #1e293b; padding: 2px 4px; font-size: 7.5pt; color: black; line-height: 1.1; }
         th { font-weight: 900; text-align: left; background-color: #f1f5f9; text-transform: uppercase; font-size: 7.5pt; color: #1e293b; }
-        
         .table-header-box { border: 1pt solid #1e293b; font-weight: 900; text-align: center; padding: 4px; margin-bottom: 15px; text-transform: uppercase; font-size: 9pt; tracking: 0.1em; color: #1e293b; }
         .row-even { background-color: #f8fafc; }
         .cell-qty { width: 30px; text-align: center; font-weight: 900; background-color: #f1f5f9; border-left: 1pt solid #1e293b; }
-
-        /* Tables */
-        .section-header {
-          border: 1pt solid #1e293b; font-weight: 1000; text-align: center; padding: 5pt; 
-          margin-bottom: 15pt; text-transform: uppercase; font-size: 10pt; letter-spacing: 0.1em;
-          background: white; width: 100%;
-        }
-        
-        table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; }
-        th, td { border: 0.5pt solid #1e293b; padding: 3pt 5pt; font-size: 8pt; line-height: 1.1; color: black; }
-        th { background: #f1f5f9; font-weight: 900; text-transform: uppercase; font-size: 8pt; text-align: left; }
+        .section-header { border: 1pt solid #1e293b; font-weight: 1000; text-align: center; padding: 5pt; margin-bottom: 15pt; text-transform: uppercase; font-size: 10pt; letter-spacing: 0.1em; background: white; width: 100%; }
         .qty-cell { width: 35pt; text-align: center; font-weight: 1000; background: #f8fafc; border-left: 1pt solid #1e293b; }
         .row-alt { background: #f8fafc; }
-
         .col-3-footer { border-top: 1pt solid #1e293b; margin-top: auto; padding-top: 5pt; display: flex; justify-content: space-between; font-size: 7.5pt; font-weight: 1000; text-transform: uppercase; }
         .brand-italic { font-style: italic; font-weight: 500; }
-
         @media print {
           @page { margin: 0; size: A4 landscape; }
           body { background: white !important; margin: 0; padding: 0; }
@@ -320,15 +357,12 @@ const App: React.FC = () => {
         }
       `}</style>
 
-      {/* Main UI */}
       {isOffline && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-300">
           <div className="bg-white max-w-md w-full p-8 rounded-3xl shadow-2xl text-center space-y-6">
             <div className="text-6xl mb-4 animate-pulse">⚠️</div>
             <h2 className="text-2xl font-black text-slate-800 tracking-tight">Sistema Inativo</h2>
-            <p className="text-slate-600 font-medium">
-              O banco de dados está temporariamente offline ou pausado por inatividade.
-            </p>
+            <p className="text-slate-600 font-medium">O banco de dados está temporariamente offline ou pausado por inatividade.</p>
             <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-xl text-sm text-left">
               <strong>Atenção Administrador:</strong> Acesse o painel do Supabase e clique em <b>Restore</b> para reativar o sistema e restabelecer a conexão.
             </div>
@@ -339,26 +373,181 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {view !== 'print' && (
-        <header className="w-full max-w-4xl px-6 py-8 flex flex-col items-center no-print">
+      {view !== 'print' && view !== 'event-selection' && (
+        <header className="w-full max-w-4xl px-6 py-8 flex flex-col items-center no-print relative">
+          <button 
+             onClick={() => {
+                localStorage.removeItem('savedEventCode');
+                localStorage.removeItem('savedView');
+                setActiveEventId(null);
+                setEventMeta(initialMeta);
+                setAttendees([]);
+                navigateTo('event-selection');
+             }} 
+             className="absolute top-8 left-6 text-slate-400 hover:text-slate-600 font-medium text-sm flex items-center gap-1"
+          >
+             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg> Trocar Evento
+          </button>
+          
           <div className="bg-white p-3 rounded-full shadow-sm mb-4">
             <span className="text-3xl">🎺</span>
           </div>
-          <h1 className="title-font text-3xl font-bold text-slate-800">Triagem Ensaio Regional</h1>
+          <h1 className="title-font text-3xl font-bold text-slate-800">{eventMeta.eventTitle}</h1>
+          <p className="text-slate-500 font-medium bg-slate-200 px-3 py-1 rounded-full text-xs mt-2">Código da Sessão: <strong className="text-indigo-700">{eventMeta.code.toUpperCase()}</strong></p>
         </header>
       )}
 
       <main className={`w-full ${view === 'print' ? 'max-w-none p-0' : 'max-w-2xl px-4'} mb-20`}>
 
+        {/* EVENT SELECTION VIEW */}
+        {view === 'event-selection' && (
+           <div className="pt-6 animate-in fade-in zoom-in-95 duration-500 max-w-md mx-auto">
+               <div className="flex flex-col items-center mb-6">
+                   <div className="w-16 h-16 bg-indigo-600 rounded-3xl flex items-center justify-center text-white text-3xl shadow-xl shadow-indigo-200 mb-4 relative overflow-hidden group">
+                       <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                       🎺
+                   </div>
+                   <h1 className="text-3xl font-black text-slate-900 tracking-tight text-center">Triagem Musical</h1>
+               </div>
+
+               <div className="bg-white p-6 rounded-3xl shadow-2xl border border-slate-100 overflow-hidden relative">
+                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-emerald-400"></div>
+                   
+                   {!isCreatingEvent ? (
+                       <form onSubmit={handleJoinEvent} className="space-y-4">
+                           <div className="text-center mb-5">
+                               <h2 className="text-xl font-bold text-slate-800">Entrar em um Evento</h2>
+                               <p className="text-slate-500 text-xs mt-1">Informe o código fornecido pela equipe</p>
+                           </div>
+                           
+                           {eventError && <div className="bg-red-50 text-red-600 p-2 text-center rounded-xl text-sm font-medium border border-red-100">{eventError}</div>}
+                           
+                           <div>
+                               <input 
+                                   type="text" 
+                                   value={inputCode}
+                                   onChange={e => setInputCode(e.target.value.toUpperCase())}
+                                   placeholder="EX: ENSAIO2026"
+                                   className="w-full text-center text-xl font-bold uppercase tracking-widest p-3 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all outline-none"
+                               />
+                           </div>
+                           <Button type="submit" variant="primary" className="w-full py-3 text-base rounded-xl shadow-lg shadow-indigo-200">
+                               Acessar Evento
+                           </Button>
+                           <div className="mt-4 pt-4 border-t border-slate-100 text-center">
+                               <p className="text-xs text-slate-500 mb-2">Administrador?</p>
+                               <div className="flex gap-2">
+                                 <Button type="button" onClick={() => { setIsCreatingEvent(true); setEventError(''); }} variant="outline" className="flex-1 py-2 text-sm rounded-xl border-dashed">
+                                     + Criar Novo
+                                 </Button>
+                                 <Button type="button" onClick={onLoadAllEvents} variant="outline" className="flex-1 py-2 text-sm rounded-xl border-dashed text-slate-600">
+                                     Ver Todos
+                                 </Button>
+                               </div>
+                           </div>
+                       </form>
+                   ) : (
+                       <form onSubmit={handleCreateEvent} className="space-y-4">
+                           <div className="flex items-center gap-3 mb-4">
+                               <button type="button" onClick={() => { setIsCreatingEvent(false); setEventError(''); }} className="text-slate-400 hover:text-indigo-600 p-1 bg-slate-50 rounded-full hover:bg-indigo-50 transition-colors">
+                                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                               </button>
+                               <h2 className="text-xl font-bold text-slate-800">Novo Evento</h2>
+                           </div>
+
+                           {eventError && <div className="bg-red-50 text-red-600 p-2 text-center rounded-xl text-sm font-medium border border-red-100">{eventError}</div>}
+                           
+                           <div>
+                               <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Título Público</label>
+                               <input 
+                                   type="text" 
+                                   required
+                                   value={newEvent.eventTitle}
+                                   onChange={e => setNewEvent({...newEvent, eventTitle: e.target.value})}
+                                   placeholder="Ensaio Regional - Norte"
+                                   className="w-full p-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none"
+                               />
+                           </div>
+                           <div>
+                               <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Código de Acesso VIP</label>
+                               <div className="relative">
+                                  <input 
+                                      type="text" 
+                                      required
+                                      value={newEvent.code}
+                                      onChange={e => setNewEvent({...newEvent, code: e.target.value.toUpperCase()})}
+                                      placeholder="EX: REGIONAL26"
+                                      className="w-full font-bold text-sm tracking-wider uppercase p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none pr-10"
+                                  />
+                                  <span className="absolute right-3 top-3 text-lg">🔒</span>
+                               </div>
+                               <p className="text-xs text-slate-400 mt-2 leading-tight">passe este código para os membros de triagem</p>
+                           </div>
+                           
+                           <Button type="submit" variant="secondary" className="w-full py-3 text-base rounded-xl mt-2 shadow-lg shadow-emerald-200">
+                               Criar Evento e Entrar
+                           </Button>
+                       </form>
+                   )}
+               </div>
+           </div>
+        )}
+
+        {/* ADMIN EVENTS LIST */}
+        {view === 'admin-events' && (
+           <div className="pt-6 animate-in fade-in zoom-in-95 duration-500 max-w-2xl mx-auto">
+              <div className="flex items-center justify-between mb-6">
+                <Button onClick={() => navigateTo('event-selection')} variant="outline" className="px-3 border-slate-300">Voltar</Button>
+                <h1 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight text-center">Gerenciar Eventos</h1>
+                <div className="w-[70px]"></div>
+              </div>
+
+              <div className="space-y-4">
+                {allEvents.length === 0 ? (
+                  <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center text-slate-500">
+                    Nenhum evento criado ainda.
+                  </div>
+                ) : (
+                  allEvents.map(ev => (
+                    <div key={ev.id} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row gap-4 items-center justify-between hover:border-indigo-200 transition-colors">
+                      <div className="flex-1 w-full text-center sm:text-left">
+                        <div className="flex flex-col sm:flex-row items-center gap-2 mb-1">
+                          <h3 className="font-bold text-lg text-slate-800">{ev.eventTitle}</h3>
+                        </div>
+                        <p className="text-sm text-slate-500">{ev.date} • {ev.local}</p>
+                      </div>
+                      <div className="flex gap-2 w-full sm:w-auto">
+                        <Button 
+                          onClick={() => { setInputCode(ev.code); handleJoinEvent(new Event('submit') as unknown as React.FormEvent); }} 
+                          variant="secondary" 
+                          className="flex-1 sm:flex-none text-xs py-2 px-4 whitespace-nowrap shadow-sm"
+                        >
+                          ENTRAR
+                        </Button>
+                        <Button 
+                          onClick={() => handleAdminDeleteEvent(ev.id!, ev.eventTitle)} 
+                          variant="danger" 
+                          className="flex-1 sm:flex-none text-xs py-2 px-4 whitespace-nowrap shadow-sm bg-rose-600 border-rose-600 text-white hover:bg-rose-700 focus:ring-rose-200"
+                        >
+                          EXCLUIR
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+           </div>
+        )}
+
         {view === 'landing' && (
-          <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
                 onClick={() => handleRegister(Role.MUSICIAN)}
                 className="h-48 bg-white border-2 border-indigo-100 rounded-2xl flex flex-col items-center justify-center gap-4 hover:border-indigo-400 hover:shadow-xl transition-all group"
               >
-                <div className="p-4 bg-indigo-50 rounded-full group-hover:bg-indigo-100">
-                  <span className="text-4xl">🎻</span>
+                <div className="p-4 bg-indigo-50 rounded-[2rem] group-hover:bg-indigo-100 transition-colors shadow-sm group-hover:scale-110 duration-300">
+                  <span className="text-5xl drop-shadow-sm">🎻</span>
                 </div>
                 <div className="text-center">
                   <h3 className="font-bold text-xl text-slate-800">Irmãos</h3>
@@ -370,8 +559,8 @@ const App: React.FC = () => {
                 onClick={() => handleRegister(Role.ORGANIST)}
                 className="h-48 bg-white border-2 border-emerald-100 rounded-2xl flex flex-col items-center justify-center gap-4 hover:border-emerald-400 hover:shadow-xl transition-all group"
               >
-                <div className="p-4 bg-emerald-50 rounded-full group-hover:bg-emerald-100">
-                  <span className="text-4xl">🎹</span>
+                <div className="p-4 bg-emerald-50 rounded-[2rem] group-hover:bg-emerald-100 transition-colors shadow-sm group-hover:scale-110 duration-300">
+                  <span className="text-5xl drop-shadow-sm">🎹</span>
                 </div>
                 <div className="text-center">
                   <h3 className="font-bold text-xl text-slate-800">Irmãs</h3>
@@ -393,18 +582,7 @@ const App: React.FC = () => {
         {view === 'form' && (
           <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-100 animate-in slide-in-from-bottom-4 duration-300">
             <div className="flex items-center gap-4 mb-6">
-              <Button
-                onClick={() => {
-                  if (editingAttendee) {
-                    setEditingAttendee(null);
-                    navigateTo('dashboard');
-                  } else {
-                    navigateTo('landing');
-                  }
-                }}
-                variant="outline"
-                className="px-2 py-2"
-              >
+              <Button onClick={() => { if (editingAttendee) { setEditingAttendee(null); navigateTo('dashboard'); } else { navigateTo('landing'); } }} variant="outline" className="px-2 py-2">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               </Button>
               <h2 className="text-2xl font-bold text-slate-800">
@@ -423,15 +601,8 @@ const App: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">
                   {selectedRole === Role.ORGANIST ? 'Cargo' : 'Ministério'}
                 </label>
-                <select
-                  value={ministry}
-                  onChange={(e) => setMinistry(e.target.value as Ministry)}
-                  className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
-                >
-                  {(selectedRole === Role.ORGANIST
-                    ? [Ministry.NONE, Ministry.EXAMINADORA, Ministry.INSTRUTORA, Ministry.ORGANISTA]
-                    : [Ministry.NONE, Ministry.ANCIAO, Ministry.DIACONO, Ministry.COOPERADOR_OFICIO, Ministry.COOPERADOR_JOVENS]
-                  ).map(m => <option key={m} value={m}>{m}</option>)}
+                <select value={ministry} onChange={(e) => setMinistry(e.target.value as Ministry)} className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none">
+                  {(selectedRole === Role.ORGANIST ? [Ministry.NONE, Ministry.EXAMINADORA, Ministry.INSTRUTORA, Ministry.ORGANISTA] : [Ministry.NONE, Ministry.ANCIAO, Ministry.DIACONO, Ministry.COOPERADOR_OFICIO, Ministry.COOPERADOR_JOVENS]).map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
 
@@ -439,21 +610,13 @@ const App: React.FC = () => {
                 <>
                   <div>
                     <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Cargo</label>
-                    <select
-                      value={level}
-                      onChange={(e) => setLevel(e.target.value as Level)}
-                      className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
-                    >
+                    <select value={level} onChange={(e) => setLevel(e.target.value as Level)} className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none">
                       {Object.values(Level).map(l => <option key={l} value={l}>{l}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Instrumento</label>
-                    <select
-                      value={instrument}
-                      onChange={(e) => setInstrument(e.target.value)}
-                      className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
-                    >
+                    <select value={instrument} onChange={(e) => setInstrument(e.target.value)} className="w-full p-4 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none">
                       <option value="">Selecione o Instrumento</option>
                       {INSTRUMENTS.map(i => <option key={i} value={i}>{i}</option>)}
                     </select>
@@ -463,40 +626,23 @@ const App: React.FC = () => {
 
               <div className="relative" ref={cityDropdownRef}>
                 <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Cidade / Localidade <span className="text-rose-500">*</span></label>
-                <div
-                  onClick={() => setIsCityDropdownOpen(!isCityDropdownOpen)}
-                  className={`w-full p-4 bg-white border rounded-xl flex justify-between items-center cursor-pointer ${!city ? 'border-amber-300' : 'border-slate-300'}`}
-                >
+                <div onClick={() => setIsCityDropdownOpen(!isCityDropdownOpen)} className={`w-full p-4 bg-white border rounded-xl flex justify-between items-center cursor-pointer ${!city ? 'border-amber-300' : 'border-slate-300'}`}>
                   <span className={city ? 'text-slate-900' : 'text-slate-400'}>{city || 'Selecione a cidade'}</span>
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" /></svg>
                 </div>
                 {isCityDropdownOpen && (
                   <div className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-64 overflow-y-auto">
                     <div className="p-3 border-b sticky top-0 bg-white">
-                      <input
-                        autoFocus
-                        type="text"
-                        value={citySearchTerm}
-                        onChange={e => setCitySearchTerm(e.target.value)}
-                        placeholder="Buscar cidade..."
-                        className="w-full p-2 border rounded-lg focus:border-indigo-400 outline-none"
-                      />
+                      <input autoFocus type="text" value={citySearchTerm} onChange={e => setCitySearchTerm(e.target.value)} placeholder="Buscar cidade..." className="w-full p-2 border rounded-lg focus:border-indigo-400 outline-none"/>
                     </div>
                     {filteredCities.map(c => (
-                      <div key={c} onClick={() => { setCity(c); setIsCityDropdownOpen(false); }} className="p-3 hover:bg-indigo-50 cursor-pointer border-b last:border-0">
-                        {c}
-                      </div>
+                      <div key={c} onClick={() => { setCity(c); setIsCityDropdownOpen(false); }} className="p-3 hover:bg-indigo-50 cursor-pointer border-b last:border-0">{c}</div>
                     ))}
                   </div>
                 )}
               </div>
 
-              <Button
-                type="submit"
-                disabled={!city}
-                className="w-full py-5 text-xl font-bold rounded-2xl shadow-lg"
-                variant={selectedRole === Role.MUSICIAN ? 'primary' : 'secondary'}
-              >
+              <Button type="submit" disabled={!city} className="w-full py-5 text-xl font-bold rounded-2xl shadow-lg" variant={selectedRole === Role.MUSICIAN ? 'primary' : 'secondary'}>
                 {editingAttendee ? 'SALVAR ALTERAÇÕES' : 'REGISTRAR PRESENÇA'}
               </Button>
             </form>
@@ -513,49 +659,31 @@ const App: React.FC = () => {
             onPrintCities={() => navigateTo('print-cities')}
             onViewCities={() => navigateTo('cities-list')}
             onViewAttendees={() => navigateTo('attendees-list')}
+            onDeleteEvent={handleDeleteEvent}
             onBack={() => navigateTo('landing')}
           />
         )}
+        
         {view === 'print' && (
-          <PrintReport
-            attendees={attendees}
-            eventMeta={eventMeta}
-            onBack={() => navigateTo('dashboard')}
-          />
+          <PrintReport attendees={attendees} eventMeta={eventMeta} onBack={() => navigateTo('dashboard')} />
         )}
 
         {view === 'print-cities' && (
-          <CityPrint
-            attendees={attendees}
-            eventMeta={eventMeta}
-            onBack={() => navigateTo('dashboard')}
-          />
+          <CityPrint attendees={attendees} eventMeta={eventMeta} onBack={() => navigateTo('dashboard')} />
         )}
 
         {view === 'cities-list' && (
-          <CitiesList
-            attendees={attendees}
-            onPrintCities={() => navigateTo('print-cities')}
-            onBack={() => navigateTo('dashboard')}
-          />
+          <CitiesList attendees={attendees} onPrintCities={() => navigateTo('print-cities')} onBack={() => navigateTo('dashboard')} />
         )}
 
         {view === 'attendees-list' && (
-          <AttendeesList
-            attendees={attendees}
-            onEditAttendee={handleEditAttendee}
-            onDeleteAttendee={handleDeleteAttendee}
-            onBack={() => navigateTo('dashboard')}
-          />
+          <AttendeesList attendees={attendees} onEditAttendee={handleEditAttendee} onDeleteAttendee={handleDeleteAttendee} onBack={() => navigateTo('dashboard')} />
         )}
       </main>
 
-      {view !== 'landing' && view !== 'print' && (
+      {view !== 'event-selection' && view !== 'landing' && view !== 'print' && (
         <div className="fixed bottom-6 right-6 no-print">
-          <Button
-            onClick={() => navigateTo('landing')}
-            className="w-14 h-14 rounded-full flex items-center justify-center p-0 shadow-2xl bg-indigo-600 text-white"
-          >
+          <Button onClick={() => navigateTo('landing')} className="w-14 h-14 rounded-full flex items-center justify-center p-0 shadow-2xl bg-indigo-600 text-white hover:bg-indigo-700 hover:scale-110 transition-all">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
           </Button>
         </div>
