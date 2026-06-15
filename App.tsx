@@ -52,16 +52,50 @@ const App: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+  const [selectedRole, setSelectedRole] = useState<Role | null>(() => {
+    return localStorage.getItem('savedSelectedRole') as Role | null;
+  });
   const [attendees, setAttendees] = useState<Attendee[]>([]);
-  const [ministry, setMinistry] = useState<Ministry>(Ministry.NONE);
-  const [instrument, setInstrument] = useState('');
-  const [level, setLevel] = useState<Level>(Level.MUSICIAN);
+  const [editingAttendee, setEditingAttendee] = useState<Attendee | null>(() => {
+    const saved = localStorage.getItem('savedEditingAttendee');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [ministry, setMinistry] = useState<Ministry>(() => {
+    const savedEdit = localStorage.getItem('savedEditingAttendee');
+    if (savedEdit) return JSON.parse(savedEdit).ministry as Ministry;
+    return Ministry.NONE;
+  });
+  const [instrument, setInstrument] = useState(() => {
+    const savedEdit = localStorage.getItem('savedEditingAttendee');
+    if (savedEdit) return JSON.parse(savedEdit).instrument;
+    const role = localStorage.getItem('savedSelectedRole');
+    return role === Role.ORGANIST ? 'Órgão' : '';
+  });
+  const [level, setLevel] = useState<Level>(() => {
+    const savedEdit = localStorage.getItem('savedEditingAttendee');
+    if (savedEdit) return JSON.parse(savedEdit).level as Level;
+    return Level.MUSICIAN;
+  });
   const [city, setCity] = useState(localStorage.getItem('savedCity') || '');
   const [showSuccess, setShowSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [editingAttendee, setEditingAttendee] = useState<Attendee | null>(null);
   const [allEvents, setAllEvents] = useState<EventModel[]>([]);
+
+  useEffect(() => {
+    if (selectedRole) {
+      localStorage.setItem('savedSelectedRole', selectedRole);
+    } else {
+      localStorage.removeItem('savedSelectedRole');
+    }
+  }, [selectedRole]);
+
+  useEffect(() => {
+    if (editingAttendee) {
+      localStorage.setItem('savedEditingAttendee', JSON.stringify(editingAttendee));
+    } else {
+      localStorage.removeItem('savedEditingAttendee');
+    }
+  }, [editingAttendee]);
 
   const [isCityDropdownOpen, setIsCityDropdownOpen] = useState(false);
   const [citySearchTerm, setCitySearchTerm] = useState('');
@@ -277,6 +311,7 @@ const App: React.FC = () => {
           setAttendees(prev => [newAttendee, ...prev]);
         }
 
+        const wasEditing = !!editingAttendee;
         setShowSuccess(true);
         setCity('');
         setCitySearchTerm('');
@@ -287,7 +322,7 @@ const App: React.FC = () => {
 
         setTimeout(() => {
           setShowSuccess(false);
-          if (editingAttendee) navigateTo('dashboard');
+          if (wasEditing) navigateTo('dashboard');
         }, 2000);
       } else {
         alert('Erro ao salvar participante. Tente novamente.');
@@ -312,6 +347,8 @@ const App: React.FC = () => {
       if (success) {
         localStorage.removeItem('savedEventCode');
         localStorage.removeItem('savedView');
+        localStorage.removeItem('savedSelectedRole');
+        localStorage.removeItem('savedEditingAttendee');
         setActiveEventId(null);
         setEventMeta(initialMeta);
         setAttendees([]);
@@ -336,6 +373,8 @@ const App: React.FC = () => {
         if (activeEventId === id) {
           localStorage.removeItem('savedEventCode');
           localStorage.removeItem('savedView');
+          localStorage.removeItem('savedSelectedRole');
+          localStorage.removeItem('savedEditingAttendee');
           setActiveEventId(null);
           setEventMeta(initialMeta);
           setAttendees([]);
@@ -445,6 +484,8 @@ const App: React.FC = () => {
              onClick={() => {
                 localStorage.removeItem('savedEventCode');
                 localStorage.removeItem('savedView');
+                localStorage.removeItem('savedSelectedRole');
+                localStorage.removeItem('savedEditingAttendee');
                 setActiveEventId(null);
                 setEventMeta(initialMeta);
                 setAttendees([]);
