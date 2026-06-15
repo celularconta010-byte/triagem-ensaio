@@ -7,11 +7,12 @@ import { PrintReport } from './components/PrintReport';
 import { CityPrint } from './components/CityPrint';
 import { CitiesList } from './components/CitiesList';
 import { AttendeesList } from './components/AttendeesList';
-import { fetchAttendees, addAttendee, updateAttendee, deleteAttendee, clearAllAttendees, getEventByCode, createEvent, updateEvent, deleteEvent, checkSystemStatus, fetchAllEvents } from './services/supabase';
+import { supabase, fetchAttendees, addAttendee, updateAttendee, deleteAttendee, clearAllAttendees, getEventByCode, createEvent, updateEvent, deleteEvent, checkSystemStatus, fetchAllEvents } from './services/supabase';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('event-selection');
   const [isOffline, setIsOffline] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const generateId = () => {
     try {
@@ -96,8 +97,10 @@ const App: React.FC = () => {
   }, [view, eventMeta.local]);
 
   useEffect(() => {
-    localStorage.setItem('savedView', view);
-  }, [view]);
+    if (!isLoading) {
+      localStorage.setItem('savedView', view);
+    }
+  }, [view, isLoading]);
 
   useEffect(() => {
     if (city) localStorage.setItem('savedCity', city);
@@ -105,29 +108,75 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const checkBgStatusAndRestore = async () => {
-      const status = await checkSystemStatus();
-      if (status.offline) setIsOffline(true);
+      try {
+        const status = await checkSystemStatus();
+        if (status.offline) setIsOffline(true);
 
-      const savedCode = localStorage.getItem('savedEventCode');
-      const savedView = localStorage.getItem('savedView') as ViewState | null;
+        const savedCode = localStorage.getItem('savedEventCode');
+        const savedView = localStorage.getItem('savedView') as ViewState | null;
 
-      if (savedCode) {
-        const event = await getEventByCode(savedCode);
-        if (event) {
-          setEventMeta(event);
-          setActiveEventId(event.id!);
-          const attendeesData = await fetchAttendees(event.id!);
-          setAttendees(attendeesData);
-          if (savedView && savedView !== 'event-selection') {
-            navigateTo(savedView, true);
+        if (savedCode) {
+          const event = await getEventByCode(savedCode);
+          if (event) {
+            setEventMeta(event);
+            setActiveEventId(event.id!);
+            const attendeesData = await fetchAttendees(event.id!);
+            setAttendees(attendeesData);
+            if (savedView && savedView !== 'event-selection') {
+              navigateTo(savedView, true);
+            } else {
+              navigateTo('landing', true);
+            }
           } else {
-            navigateTo('landing', true);
+            localStorage.removeItem('savedEventCode');
+            localStorage.removeItem('savedView');
           }
         }
+      } catch (err) {
+        console.error("Error restoring session:", err);
+      } finally {
+        setIsLoading(false);
       }
     };
     checkBgStatusAndRestore();
   }, []);
+
+  // Realtime subscription for attendees
+  useEffect(() => {
+    if (!activeEventId) return;
+
+    const channel = supabase
+      .channel(`attendees_changes_${activeEventId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'attendees',
+          filter: `event_id=eq.${activeEventId}`
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newAttendee = payload.new as Attendee;
+            setAttendees(prev => {
+              if (prev.some(a => a.id === newAttendee.id)) return prev;
+              return [newAttendee, ...prev];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedAttendee = payload.new as Attendee;
+            setAttendees(prev => prev.map(a => a.id === updatedAttendee.id ? updatedAttendee : a));
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            setAttendees(prev => prev.filter(a => a.id !== deletedId));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeEventId]);
 
   // Update Event Metadata in DB when it changes IF an event is active
   useEffect(() => {
@@ -328,6 +377,17 @@ const App: React.FC = () => {
   const filteredCities = BRAZILIAN_CITIES.filter(c =>
     c.toLowerCase().includes(citySearchTerm.toLowerCase())
   );
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-4 animate-pulse">
+          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-600 font-medium text-lg">Carregando informações do evento...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center">

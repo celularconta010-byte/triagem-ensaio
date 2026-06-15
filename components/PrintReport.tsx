@@ -25,7 +25,7 @@ export const PrintReport: React.FC<PrintReportProps> = ({ attendees, eventMeta, 
     const musicosSemMinisterioCount = attendees.filter(a => a.role === Role.MUSICIAN && !ministeriosIrmaos.includes(a.ministry)).length;
     const auxiliaresCount = attendees.filter(a => 
         (a.role === Role.ORGANIST && a.ministry !== Ministry.EXAMINADORA && a.ministry !== Ministry.INSTRUTORA) ||
-        (a.role === Role.MUSICIAN && (a.level === Level.AUXILIAR || (a.level === Level.MUSICIAN && a.ministry === Ministry.NONE)))
+        (a.role === Role.MUSICIAN && a.level === Level.MUSICIAN)
     ).length;
 
     const registeredInstruments = [
