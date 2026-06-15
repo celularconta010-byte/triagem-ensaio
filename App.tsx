@@ -58,6 +58,7 @@ const App: React.FC = () => {
   const [level, setLevel] = useState<Level>(Level.MUSICIAN);
   const [city, setCity] = useState(localStorage.getItem('savedCity') || '');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingAttendee, setEditingAttendee] = useState<Attendee | null>(null);
   const [allEvents, setAllEvents] = useState<EventModel[]>([]);
 
@@ -201,44 +202,49 @@ const App: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!city || !activeEventId) return;
+    if (!city || !activeEventId || isSubmitting) return;
 
-    const newAttendee: Attendee = {
-      id: editingAttendee ? editingAttendee.id : generateId(),
-      event_id: activeEventId,
-      ministry,
-      role: selectedRole!,
-      instrument: instrument || (selectedRole === Role.ORGANIST ? 'Órgão' : 'Não informado'),
-      level: selectedRole === Role.ORGANIST ? Level.MUSICIAN : level,
-      city,
-      timestamp: editingAttendee ? editingAttendee.timestamp : Date.now(),
-    };
+    setIsSubmitting(true);
+    try {
+      const newAttendee: Attendee = {
+        id: editingAttendee ? editingAttendee.id : generateId(),
+        event_id: activeEventId,
+        ministry,
+        role: selectedRole!,
+        instrument: instrument || (selectedRole === Role.ORGANIST ? 'Órgão' : 'Não informado'),
+        level: selectedRole === Role.ORGANIST ? Level.MUSICIAN : level,
+        city,
+        timestamp: editingAttendee ? editingAttendee.timestamp : Date.now(),
+      };
 
-    const success = editingAttendee
-      ? await updateAttendee(newAttendee)
-      : await addAttendee(newAttendee);
+      const success = editingAttendee
+        ? await updateAttendee(newAttendee)
+        : await addAttendee(newAttendee);
 
-    if (success) {
-      if (editingAttendee) {
-        setAttendees(prev => prev.map(a => a.id === newAttendee.id ? newAttendee : a));
+      if (success) {
+        if (editingAttendee) {
+          setAttendees(prev => prev.map(a => a.id === newAttendee.id ? newAttendee : a));
+        } else {
+          setAttendees(prev => [newAttendee, ...prev]);
+        }
+
+        setShowSuccess(true);
+        setCity('');
+        setCitySearchTerm('');
+        setMinistry(Ministry.NONE);
+        setInstrument(selectedRole === Role.ORGANIST ? 'Órgão' : '');
+        setLevel(Level.NONE);
+        setEditingAttendee(null);
+
+        setTimeout(() => {
+          setShowSuccess(false);
+          if (editingAttendee) navigateTo('dashboard');
+        }, 2000);
       } else {
-        setAttendees(prev => [newAttendee, ...prev]);
+        alert('Erro ao salvar participante. Tente novamente.');
       }
-
-      setShowSuccess(true);
-      setCity('');
-      setCitySearchTerm('');
-      setMinistry(Ministry.NONE);
-      setInstrument(selectedRole === Role.ORGANIST ? 'Órgão' : '');
-      setLevel(Level.NONE);
-      setEditingAttendee(null);
-
-      setTimeout(() => {
-        setShowSuccess(false);
-        if (editingAttendee) navigateTo('dashboard');
-      }, 2000);
-    } else {
-      alert('Erro ao salvar participante. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -642,8 +648,8 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              <Button type="submit" disabled={!city} className="w-full py-5 text-xl font-bold rounded-2xl shadow-lg" variant={selectedRole === Role.MUSICIAN ? 'primary' : 'secondary'}>
-                {editingAttendee ? 'SALVAR ALTERAÇÕES' : 'REGISTRAR PRESENÇA'}
+              <Button type="submit" disabled={!city || isSubmitting} className="w-full py-5 text-xl font-bold rounded-2xl shadow-lg" variant={selectedRole === Role.MUSICIAN ? 'primary' : 'secondary'}>
+                {isSubmitting ? 'SALVANDO...' : (editingAttendee ? 'SALVAR ALTERAÇÕES' : 'REGISTRAR PRESENÇA')}
               </Button>
             </form>
           </div>
