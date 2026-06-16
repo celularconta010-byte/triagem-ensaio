@@ -146,7 +146,8 @@ const App: React.FC = () => {
         const status = await checkSystemStatus();
         if (status.offline) setIsOffline(true);
 
-        const savedCode = localStorage.getItem('savedEventCode');
+        // Usa sessionStorage para o código do evento: ao fechar o navegador, a sessão é limpa automaticamente
+        const savedCode = sessionStorage.getItem('savedEventCode');
         const savedView = localStorage.getItem('savedView') as ViewState | null;
 
         if (savedCode) {
@@ -162,7 +163,7 @@ const App: React.FC = () => {
               navigateTo('landing', true);
             }
           } else {
-            localStorage.removeItem('savedEventCode');
+            sessionStorage.removeItem('savedEventCode');
             localStorage.removeItem('savedView');
           }
         }
@@ -239,7 +240,7 @@ const App: React.FC = () => {
     if (event) {
       setEventMeta(event);
       setActiveEventId(event.id!);
-      localStorage.setItem('savedEventCode', event.code);
+      sessionStorage.setItem('savedEventCode', event.code);
       
       const attendeesData = await fetchAttendees(event.id!);
       setAttendees(attendeesData);
@@ -264,7 +265,7 @@ const App: React.FC = () => {
     if (createdEvent) {
       setEventMeta(createdEvent);
       setActiveEventId(createdEvent.id!);
-      localStorage.setItem('savedEventCode', createdEvent.code);
+      sessionStorage.setItem('savedEventCode', createdEvent.code);
       setAttendees([]);
       navigateTo('landing');
     } else {
@@ -345,7 +346,7 @@ const App: React.FC = () => {
     if (confirm('PERIGO: Você está prestes a excluir o EVENTO INTEIRO e todas as suas listas de presença. Esta ação não pode ser desfeita. Tem certeza?')) {
       const success = await deleteEvent(activeEventId);
       if (success) {
-        localStorage.removeItem('savedEventCode');
+        sessionStorage.removeItem('savedEventCode');
         localStorage.removeItem('savedView');
         localStorage.removeItem('savedSelectedRole');
         localStorage.removeItem('savedEditingAttendee');
@@ -371,7 +372,7 @@ const App: React.FC = () => {
       if (success) {
         setAllEvents(allEvents.filter(e => e.id !== id));
         if (activeEventId === id) {
-          localStorage.removeItem('savedEventCode');
+          sessionStorage.removeItem('savedEventCode');
           localStorage.removeItem('savedView');
           localStorage.removeItem('savedSelectedRole');
           localStorage.removeItem('savedEditingAttendee');
@@ -389,6 +390,28 @@ const App: React.FC = () => {
     const events = await fetchAllEvents();
     setAllEvents(events);
     navigateTo('admin-events');
+  };
+
+  const handleAdminEnterEvent = async (ev: EventModel) => {
+    const code = prompt(`Digite o código do evento "${ev.eventTitle}" para confirmar:`);
+    if (!code) return;
+    if (code.trim().toUpperCase() !== ev.code.toUpperCase()) {
+      alert('Código incorreto. Acesso negado.');
+      return;
+    }
+    setEventMeta(ev);
+    setActiveEventId(ev.id!);
+    sessionStorage.setItem('savedEventCode', ev.code);
+    const attendeesData = await fetchAttendees(ev.id!);
+    setAttendees(attendeesData);
+    navigateTo('landing');
+  };
+
+  const refreshAttendees = async () => {
+    if (activeEventId) {
+      const attendeesData = await fetchAttendees(activeEventId);
+      setAttendees(attendeesData);
+    }
   };
 
   const handleEditAttendee = (attendee: Attendee) => {
@@ -482,7 +505,7 @@ const App: React.FC = () => {
         <header className="w-full max-w-4xl px-6 py-8 flex flex-col items-center no-print relative">
           <button 
              onClick={() => {
-                localStorage.removeItem('savedEventCode');
+                sessionStorage.removeItem('savedEventCode');
                 localStorage.removeItem('savedView');
                 localStorage.removeItem('savedSelectedRole');
                 localStorage.removeItem('savedEditingAttendee');
@@ -625,7 +648,7 @@ const App: React.FC = () => {
                       </div>
                       <div className="flex gap-2 w-full sm:w-auto">
                         <Button 
-                          onClick={() => { setInputCode(ev.code); handleJoinEvent(new Event('submit') as unknown as React.FormEvent); }} 
+                          onClick={() => handleAdminEnterEvent(ev)} 
                           variant="secondary" 
                           className="flex-1 sm:flex-none text-xs py-2 px-4 whitespace-nowrap shadow-sm"
                         >
@@ -689,7 +712,7 @@ const App: React.FC = () => {
         {view === 'form' && (
           <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-100 animate-in slide-in-from-bottom-4 duration-300">
             <div className="flex items-center gap-4 mb-6">
-              <Button onClick={() => { if (editingAttendee) { setEditingAttendee(null); navigateTo('dashboard'); } else { navigateTo('landing'); } }} variant="outline" className="px-2 py-2">
+              <Button onClick={() => { if (editingAttendee) { setEditingAttendee(null); navigateTo('dashboard'); } else { refreshAttendees(); navigateTo('landing'); } }} variant="outline" className="px-2 py-2">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               </Button>
               <h2 className="text-2xl font-bold text-slate-800">
@@ -738,13 +761,15 @@ const App: React.FC = () => {
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" /></svg>
                 </div>
                 {isCityDropdownOpen && (
-                  <div className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-64 overflow-y-auto">
-                    <div className="p-3 border-b sticky top-0 bg-white">
+                  <div className="absolute z-50 w-full bottom-full mb-2 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-64 overflow-y-auto flex flex-col-reverse">
+                    <div className="p-3 border-t sticky bottom-0 bg-white">
                       <input autoFocus type="text" value={citySearchTerm} onChange={e => setCitySearchTerm(e.target.value)} placeholder="Buscar cidade..." className="w-full p-2 border rounded-lg focus:border-indigo-400 outline-none"/>
                     </div>
-                    {filteredCities.map(c => (
-                      <div key={c} onClick={() => { setCity(c); setIsCityDropdownOpen(false); }} className="p-3 hover:bg-indigo-50 cursor-pointer border-b last:border-0">{c}</div>
-                    ))}
+                    <div className="flex flex-col">
+                      {filteredCities.map(c => (
+                        <div key={c} onClick={() => { setCity(c); setIsCityDropdownOpen(false); }} className="p-3 hover:bg-indigo-50 cursor-pointer border-b last:border-0">{c}</div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
